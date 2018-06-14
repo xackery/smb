@@ -13,9 +13,9 @@ import (
 	"net"
 	"runtime/debug"
 
-	"github.com/stacktitan/smb/gss"
-	"github.com/stacktitan/smb/ntlmssp"
-	"github.com/stacktitan/smb/smb/encoder"
+	"github.com/hy05190134/smb/gss"
+	"github.com/hy05190134/smb/ntlmssp"
+	"github.com/hy05190134/smb/smb/encoder"
 )
 
 type Session struct {
@@ -29,6 +29,7 @@ type Session struct {
 	dialect           uint16
 	options           Options
 	trees             map[string]uint32
+	FileId            FileID
 }
 
 type Options struct {
@@ -73,6 +74,7 @@ func NewSession(opt Options, debug bool) (s *Session, err error) {
 		conn:              conn,
 		options:           opt,
 		trees:             make(map[string]uint32),
+		FileId:            FileID{},
 	}
 
 	s.Debug("Negotiating protocol", nil)
@@ -326,6 +328,92 @@ func (s *Session) TreeDisconnect(name string) error {
 	delete(s.trees, name)
 
 	s.Debug("TreeDisconnect completed ["+name+"]", nil)
+	return nil
+}
+
+func (s *Session) OpenFile(tree, name string) error {
+	s.Debug("Sending Create request ["+tree+"\\"+name+"]", nil)
+	req, err := s.NewCreateReq(tree, name)
+	if err != nil {
+		s.Debug("", err)
+		return err
+	}
+	buf, err := s.send(req)
+	if err != nil {
+		s.Debug("", err)
+		return err
+	}
+	var res CreateRes
+	s.Debug("Unmarshalling Create response ["+name+"]", nil)
+	if err := encoder.Unmarshal(buf, &res); err != nil {
+		s.Debug("Raw:\n"+hex.Dump(buf), err)
+		return err
+	}
+
+	if res.Header.Status != StatusOk {
+		return errors.New("Failed to create file: " + StatusMap[res.Header.Status])
+	}
+
+	//get file_id
+	s.FileId = res.FileID
+
+	s.Debug("Completed Create ["+name+"]", nil)
+	return nil
+}
+
+func (s *Session) ReadFile(tree string) error {
+	s.Debug("Sending ReadFile request", nil)
+	req, err := s.NewReadReq(tree)
+	if err != nil {
+		s.Debug("", err)
+		return err
+	}
+	buf, err := s.send(req)
+	if err != nil {
+		s.Debug("", err)
+		return err
+	}
+	var res ReadRes
+	s.Debug("Unmarshalling ReadFile response", nil)
+	if err := encoder.Unmarshal(buf, &res); err != nil {
+		s.Debug("Raw:\n"+hex.Dump(buf), err)
+		return err
+	}
+
+	if res.Header.Status != StatusOk {
+		return errors.New("Failed to read file: " + StatusMap[res.Header.Status])
+	}
+
+	fmt.Printf("Read Content: %s\n", string(res.Data))
+
+	s.Debug("Completed ReadFile", nil)
+	return nil
+}
+
+func (s *Session) CloseFile(tree string) error {
+	s.Debug("Sending CloseFile request", nil)
+	req, err := s.NewCloseReq(tree)
+	if err != nil {
+		s.Debug("", err)
+		return err
+	}
+	buf, err := s.send(req)
+	if err != nil {
+		s.Debug("", err)
+		return err
+	}
+	var res CloseRes
+	s.Debug("Unmarshalling CloseFile response", nil)
+	if err := encoder.Unmarshal(buf, &res); err != nil {
+		s.Debug("Raw:\n"+hex.Dump(buf), err)
+		return err
+	}
+
+	if res.Header.Status != StatusOk {
+		return errors.New("Failed to close file: " + StatusMap[res.Header.Status])
+	}
+
+	s.Debug("Completed CloseFile", nil)
 	return nil
 }
 

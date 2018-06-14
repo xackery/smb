@@ -272,6 +272,11 @@ func marshal(v interface{}, meta *Metadata) ([]byte, error) {
 				return nil, err
 			}
 			data = uint16(l)
+			// if len is 0, offset set 0
+			l, err = getFieldLengthByName(fieldName, meta)
+			if l == 0 && err == nil {
+				data = uint16(0)
+			}
 		}
 		if err := binary.Write(w, binary.LittleEndian, data); err != nil {
 			return nil, err
@@ -299,6 +304,11 @@ func marshal(v interface{}, meta *Metadata) ([]byte, error) {
 				return nil, err
 			}
 			data = uint32(l)
+			// if len is 0, offset set 0
+			l, err = getFieldLengthByName(fieldName, meta)
+			if l == 0 && err == nil {
+				data = uint32(0)
+			}
 		}
 		if err := binary.Write(w, binary.LittleEndian, data); err != nil {
 			return nil, err
@@ -394,13 +404,7 @@ func unmarshal(buf []byte, v interface{}, meta *Metadata) (interface{}, error) {
 			}
 			meta.Lens[ref] = uint64(ret)
 		}
-		meta.CurrOffset += uint64(binary.Size(ret))
-		return ret, nil
-	case reflect.Uint32:
-		var ret uint32
-		if err := binary.Read(r, binary.LittleEndian, &ret); err != nil {
-			return nil, err
-		}
+
 		if meta.Tags.Has("offset") {
 			ref, err := meta.Tags.GetString("offset")
 			if err != nil {
@@ -408,6 +412,31 @@ func unmarshal(buf []byte, v interface{}, meta *Metadata) (interface{}, error) {
 			}
 			meta.Offsets[ref] = uint64(ret)
 		}
+
+		meta.CurrOffset += uint64(binary.Size(ret))
+		return ret, nil
+	case reflect.Uint32:
+		var ret uint32
+		if err := binary.Read(r, binary.LittleEndian, &ret); err != nil {
+			return nil, err
+		}
+
+		if meta.Tags.Has("len") {
+			ref, err := meta.Tags.GetString("len")
+			if err != nil {
+				return nil, err
+			}
+			meta.Lens[ref] = uint64(ret)
+		}
+
+		if meta.Tags.Has("offset") {
+			ref, err := meta.Tags.GetString("offset")
+			if err != nil {
+				return nil, err
+			}
+			meta.Offsets[ref] = uint64(ret)
+		}
+
 		meta.CurrOffset += uint64(binary.Size(ret))
 		return ret, nil
 	case reflect.Uint64:
