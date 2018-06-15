@@ -341,13 +341,13 @@ type SessionSetup2Res struct {
 }
 
 //logoff request&response
-type LogOffReq struct {
+type LogoffReq struct {
 	Header
 	StructureSize uint16
 	Reserved      uint16
 }
 
-type LogOffRes struct {
+type LogoffRes struct {
 	Header
 	StructureSize uint16
 	Reserved      uint16
@@ -1018,6 +1018,16 @@ func (s *Session) NewTreeDisconnectReq(treeId uint32) (TreeDisconnectReq, error)
 	}, nil
 }
 
-func NewTreeDisconnectRes() (TreeDisconnectRes, error) {
-	return TreeDisconnectRes{}, nil
+func (s *Session) NewLogoffReq() (LogoffReq, error) {
+	header := newHeader()
+	header.Command = CommandLogoff
+	header.CreditCharge = 1
+	header.MessageID = s.messageID
+	header.SessionID = s.sessionID
+
+	return LogoffReq{
+		Header:        header,
+		StructureSize: 4,
+		Reserved:      0,
+	}, nil
 }

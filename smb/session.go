@@ -417,6 +417,34 @@ func (s *Session) CloseFile(tree string) error {
 	return nil
 }
 
+func (s *Session) Logoff() error {
+	s.Debug("Sending Logoff request", nil)
+	req, err := s.NewLogoffReq()
+	if err != nil {
+		s.Debug("", err)
+		return err
+	}
+
+	buf, err := s.send(req)
+	if err != nil {
+		s.Debug("", err)
+		return err
+	}
+
+	var res LogoffRes
+	s.Debug("Unmarshalling Logoff response", nil)
+	if err := encoder.Unmarshal(buf, &res); err != nil {
+		s.Debug("Raw:\n"+hex.Dump(buf), err)
+	}
+
+	if res.Header.Status != StatusOk {
+		return errors.New("Failed to logoff: " + StatusMap[res.Header.Status])
+	}
+
+	s.Debug("Completed Logoff", nil)
+	return nil
+}
+
 func (s *Session) Close() {
 	s.Debug("Closing session", nil)
 	for k, _ := range s.trees {
