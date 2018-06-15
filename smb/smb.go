@@ -55,6 +55,28 @@ const (
 	CommandOplockBreak
 )
 
+var CommandStr = map[uint16]string{
+	CommandNegotiate:      "Negotiate",
+	CommandSessionSetup:   "SessionSetup",
+	CommandLogoff:         "Logoff",
+	CommandTreeConnect:    "TreeConnect",
+	CommandTreeDisconnect: "TreeDisconnect",
+	CommandCreate:         "Create",
+	CommandClose:          "Close",
+	CommandFlush:          "Flush",
+	CommandRead:           "Read",
+	CommandWrite:          "Write",
+	CommandLock:           "Lock",
+	CommandIOCtl:          "IOCtl",
+	CommandCancel:         "Cancel",
+	CommandEcho:           "Echo",
+	CommandQueryDirectory: "QueryDirectory",
+	CommandChangeNotify:   "ChangeNotify",
+	CommandQueryInfo:      "QueryInfo",
+	CommandSetInfo:        "SetInfo",
+	CommandOplockBreak:    "OplockBreak",
+}
+
 const (
 	_ uint16 = iota
 	SecurityModeSigningEnabled
@@ -228,6 +250,31 @@ type NegotiateReq struct {
 	ClientGuid      []byte `smb:"fixed:16"`
 	ClientStartTime uint64
 	Dialects        []uint16
+}
+
+type NegotiateContext struct {
+	ContentType uint16
+	DataLen     uint16 `smb:"len:Data"`
+	Reserved    uint32
+	Data        []byte
+}
+
+//if dialects contain 0x0311, use it
+type NegotiateReqExt struct {
+	Header
+	StructureSize          uint16
+	DialectCount           uint16 `smb:"count:Dialects"`
+	SecurityMode           uint16
+	Reserved               uint16
+	Capabilities           uint32
+	ClientGuid             []byte `smb:"fixed:16"`
+	NegotiateContextOffset uint16 `smb:"offset:NegotiateContextList"`
+	NegotiateContextCount  uint8  `smb:"count:NegotiateContextList"`
+	Reserved2              uint8
+	Dialects               []uint16
+	//used for 8 byte aligned
+	Padding              []byte
+	NegotiateContextList []NegotiateContext
 }
 
 type NegotiateRes struct {

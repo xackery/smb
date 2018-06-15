@@ -19,6 +19,7 @@ type Metadata struct {
 	Tags       *TagMap
 	Lens       map[string]uint64
 	Offsets    map[string]uint64
+	Counts     map[string]uint64
 	Parent     interface{}
 	ParentBuf  []byte
 	CurrOffset uint64
@@ -348,6 +349,7 @@ func unmarshal(buf []byte, v interface{}, meta *Metadata) (interface{}, error) {
 			Parent:     v,
 			ParentBuf:  buf,
 			Offsets:    make(map[string]uint64),
+			Counts:     make(map[string]uint64),
 			CurrOffset: 0,
 		}
 	}
@@ -361,6 +363,7 @@ func unmarshal(buf []byte, v interface{}, meta *Metadata) (interface{}, error) {
 			Parent:     v,
 			ParentBuf:  buf,
 			Offsets:    make(map[string]uint64),
+			Counts:     make(map[string]uint64),
 			CurrOffset: 0,
 		}
 		for i := 0; i < tf.NumField(); i++ {
@@ -405,6 +408,14 @@ func unmarshal(buf []byte, v interface{}, meta *Metadata) (interface{}, error) {
 			meta.Lens[ref] = uint64(ret)
 		}
 
+		if meta.Tags.Has("count") {
+			ref, err := meta.Tags.GetString("count")
+			if err != nil {
+				return nil, err
+			}
+			meta.Counts[ref] = uint64(ret)
+		}
+
 		if meta.Tags.Has("offset") {
 			ref, err := meta.Tags.GetString("offset")
 			if err != nil {
@@ -427,6 +438,14 @@ func unmarshal(buf []byte, v interface{}, meta *Metadata) (interface{}, error) {
 				return nil, err
 			}
 			meta.Lens[ref] = uint64(ret)
+		}
+
+		if meta.Tags.Has("count") {
+			ref, err := meta.Tags.GetString("count")
+			if err != nil {
+				return nil, err
+			}
+			meta.Counts[ref] = uint64(ret)
 		}
 
 		if meta.Tags.Has("offset") {
@@ -479,6 +498,36 @@ func unmarshal(buf []byte, v interface{}, meta *Metadata) (interface{}, error) {
 			}
 			return data, nil
 		case reflect.Uint16:
+			var l, o int
+			var err error
+			if meta.Tags.Has("fixed") {
+				if l, err = meta.Tags.GetInt("fixed"); err != nil {
+					return nil, err
+				}
+				// Fixed length fields advance current offset
+				meta.CurrOffset += uint64(l * 2)
+			} else {
+				if val, ok := meta.Counts[meta.CurrField]; ok {
+					l = int(val)
+				} else {
+					return nil, errors.New("Variable length field missing length reference in struct: " + meta.CurrField)
+				}
+				if val, ok := meta.Offsets[meta.CurrField]; ok {
+					o = int(val)
+				} else {
+					// No offset found in map. Use current offset
+					o = int(meta.CurrOffset)
+				}
+				// Variable length data is relative to parent/outer struct. Reset reader to point to beginning of data
+				r = bytes.NewBuffer(meta.ParentBuf[o : o+l*2])
+				// Variable length data fields do NOT advance current offset.
+			}
+			data := make([]uint16, l)
+			if err := binary.Read(r, binary.LittleEndian, &data); err != nil {
+				return nil, err
+			}
+			return data, nil
+		default:
 			return errors.New("Unmarshal not implemented for slice kind:" + tf.Kind().String()), nil
 		}
 	default:
