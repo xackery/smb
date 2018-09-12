@@ -240,7 +240,7 @@ type Header struct {
 	Signature     []byte `smb:"fixed:16"`
 }
 
-type NegotiateReq struct {
+type negotiateReq struct {
 	Header
 	StructureSize   uint16
 	DialectCount    uint16 `smb:"count:Dialects"`
@@ -277,7 +277,7 @@ type NegotiateReqExt struct {
 	NegotiateContextList []NegotiateContext
 }
 
-type NegotiateRes struct {
+type negotiateRes struct {
 	Header
 	StructureSize        uint16
 	SecurityMode         uint16
@@ -296,7 +296,7 @@ type NegotiateRes struct {
 	SecurityBlob         *gss.NegTokenInit
 }
 
-type SessionSetup1Req struct {
+type sessionSetup1Req struct {
 	Header
 	StructureSize        uint16
 	Flags                byte
@@ -309,7 +309,7 @@ type SessionSetup1Req struct {
 	SecurityBlob         *gss.NegTokenInit
 }
 
-type SessionSetup1Res struct {
+type sessionSetup1Res struct {
 	Header
 	StructureSize        uint16
 	Flags                uint16
@@ -318,7 +318,7 @@ type SessionSetup1Res struct {
 	SecurityBlob         *gss.NegTokenResp
 }
 
-type SessionSetup2Req struct {
+type sessionSetup2Req struct {
 	Header
 	StructureSize        uint16
 	Flags                byte
@@ -331,7 +331,7 @@ type SessionSetup2Req struct {
 	SecurityBlob         *gss.NegTokenResp
 }
 
-type SessionSetup2Res struct {
+type sessionSetup2Res struct {
 	Header
 	StructureSize        uint16
 	Flags                uint16
@@ -341,13 +341,13 @@ type SessionSetup2Res struct {
 }
 
 //logoff request&response
-type LogoffReq struct {
+type logoffReq struct {
 	Header
 	StructureSize uint16
 	Reserved      uint16
 }
 
-type LogoffRes struct {
+type logoffRes struct {
 	Header
 	StructureSize uint16
 	Reserved      uint16
@@ -359,7 +359,7 @@ type FileID struct {
 }
 
 //create file request&response
-type CreateReq struct {
+type createReq struct {
 	Header
 	StructureSize        uint16
 	SecurityFlags        uint8
@@ -379,7 +379,7 @@ type CreateReq struct {
 	Buffer               []byte
 }
 
-type CreateRes struct {
+type createRes struct {
 	Header
 	StructureSize        uint16
 	OplockLevel          uint8
@@ -399,16 +399,15 @@ type CreateRes struct {
 	Contexts             []byte
 }
 
-//close file request&response
-type CloseReq struct {
+type closeReq struct {
 	Header
 	StructureSize uint16
 	Flags         uint16
 	Reserved      uint32
-	FileID        `smb:"fixed:16"`
+	*FileID       `smb:"fixed:16"`
 }
 
-type CloseRes struct {
+type closeRes struct {
 	Header
 	StructureSize  uint16
 	Flags          uint16
@@ -422,8 +421,7 @@ type CloseRes struct {
 	FileAttributes uint32
 }
 
-//flush file request&response
-type FlushReq struct {
+type flushReq struct {
 	Header
 	StructureSize uint16
 	Reserved1     uint16
@@ -431,21 +429,20 @@ type FlushReq struct {
 	FileID
 }
 
-type FlushRes struct {
+type flushRes struct {
 	Header
 	StructureSize uint16
 	Reserved      uint16
 }
 
-//read file request&response
-type ReadReq struct {
+type readReq struct {
 	Header
 	StructureSize         uint16
 	Padding               uint8
 	Flags                 uint8
 	Length                uint32
 	Offset                uint64
-	FileID                `smb:"fixed:16"`
+	*FileID               `smb:"fixed:16"`
 	MinimumCount          uint32
 	Channel               uint32
 	RemainingBytes        uint32
@@ -454,7 +451,7 @@ type ReadReq struct {
 	ChannelInfo           []byte
 }
 
-type ReadRes struct {
+type readRes struct {
 	Header
 	StructureSize uint16
 	DataOffset    uint8 `smb:"offset:Data"`
@@ -465,8 +462,7 @@ type ReadRes struct {
 	Data          []byte
 }
 
-//write file request&response
-type WriteReq struct {
+type writeReq struct {
 	Header
 	StructureSize uint16
 	DataOffset    uint16
@@ -481,7 +477,7 @@ type WriteReq struct {
 	ChannelInfo            []byte
 }
 
-type WriteRes struct {
+type writeRes struct {
 	Header
 	StructureSize          uint16
 	Reserved               uint16
@@ -491,8 +487,7 @@ type WriteRes struct {
 	WriteChannelInfoLength uint16
 }
 
-//oplock break notify by server
-type OplockBreakNotification struct {
+type oplockBreakNotification struct {
 	Header
 	StructureSize uint16
 	OplockLevel   uint8
@@ -501,7 +496,7 @@ type OplockBreakNotification struct {
 	FileID
 }
 
-type LeaseBreakNotification struct {
+type leaseBreakNotification struct {
 	Header
 	StructureSize     uint16
 	NewEpoch          uint16
@@ -510,7 +505,6 @@ type LeaseBreakNotification struct {
 	CurrentLeaseState uint32
 }
 
-//oplock break ack by client
 type OplockBreakAck struct {
 	Header
 	StructureSize uint16
@@ -520,7 +514,7 @@ type OplockBreakAck struct {
 	FileID
 }
 
-type LeaseBreakAck struct {
+type leaseBreakAck struct {
 	Header
 	StructureSize uint16
 	Reserved      uint16
@@ -531,7 +525,7 @@ type LeaseBreakAck struct {
 }
 
 //oplock break res by server
-type OplockBreakRes struct {
+type oplockBreakRes struct {
 	Header
 	StructureSize uint16
 	OplockLevel   uint8
@@ -540,7 +534,7 @@ type OplockBreakRes struct {
 	FileID
 }
 
-type LeaseBreakRes struct {
+type leaseBreakRes struct {
 	Header
 	StructureSize uint16
 	Reserved      uint16
@@ -550,51 +544,50 @@ type LeaseBreakRes struct {
 	LeaseDuration uint64
 }
 
-type LockElement struct {
+type lockElement struct {
 	Offset   uint64
 	Length   uint64
 	Flags    uint32
 	Reserved uint32
 }
 
-//lock request&response
-type LockReq struct {
+type lockReq struct {
 	Header
 	StructureSize uint16
 	LockCount     uint16 `smb:"count:Locks"`
 	LockSequence  uint32 `LSN: 4bit; LockSequenceIndex: 28bit`
 	FileID
-	Locks []LockElement
+	Locks []lockElement
 }
 
-type LockRes struct {
+type lockRes struct {
 	Header
 	StructureSize uint16
 	Reserved      uint16
 }
 
 //echo request&response
-type EchoReq struct {
+type echoReq struct {
 	Header
 	StructureSize uint16
 	Reserved      uint16
 }
 
-type EchoRes struct {
+type echoRes struct {
 	Header
 	StructureSize uint16
 	Reserved      uint16
 }
 
 //cancel request
-type CancelReq struct {
+type cancelReq struct {
 	Header
 	StructureSize uint16
 	Reserved      uint16
 }
 
 //ioctl request&response
-type IoctlReq struct {
+type ioctlReq struct {
 	Header
 	StructureSize uint16
 	Reserved      uint16
@@ -611,7 +604,7 @@ type IoctlReq struct {
 	Buffer            []byte
 }
 
-type IoctlRes struct {
+type ioctlRes struct {
 	Header
 	StructureSize uint16
 	Reserved      uint16
@@ -627,7 +620,7 @@ type IoctlRes struct {
 }
 
 //query directory request&response
-type QueryDirectoryReq struct {
+type queryDirectoryReq struct {
 	Header
 	StructureSize        uint16
 	FileInformationClass uint8
@@ -640,7 +633,7 @@ type QueryDirectoryReq struct {
 	Pattern            []byte
 }
 
-type QueryDirectoryRes struct {
+type queryDirectoryRes struct {
 	Header
 	StructureSize      uint16
 	OutputBufferOffset uint16
@@ -649,7 +642,7 @@ type QueryDirectoryRes struct {
 }
 
 //change notify request&response
-type ChangeNotifyReq struct {
+type changeNotifyReq struct {
 	Header
 	StructureSize      uint16
 	Flags              uint16
@@ -659,7 +652,7 @@ type ChangeNotifyReq struct {
 	Reserved         uint32
 }
 
-type ChangeNotifyRes struct {
+type changeNotifyRes struct {
 	Header
 	StructureSize      uint16
 	OutputBufferOffset uint16
@@ -668,7 +661,7 @@ type ChangeNotifyRes struct {
 }
 
 //query info request&response
-type QueryInfoReq struct {
+type queryInfoReq struct {
 	Header
 	StructureSize         uint16
 	InfoType              uint8
@@ -683,7 +676,7 @@ type QueryInfoReq struct {
 	InputBuffer []byte
 }
 
-type QueryInfoRes struct {
+type queryInfoRes struct {
 	Header
 	StructureSize      uint16
 	OutputBufferOffset uint16
@@ -692,7 +685,7 @@ type QueryInfoRes struct {
 }
 
 //set info request&response
-type SetInfoReq struct {
+type setInfoReq struct {
 	Header
 	StructureSize         uint16
 	InfoType              uint8
@@ -705,12 +698,12 @@ type SetInfoReq struct {
 	Buffer []byte
 }
 
-type SetInfoRes struct {
+type setInfoRes struct {
 	Header
 	StructureSize uint16
 }
 
-type TreeConnectReq struct {
+type treeConnectReq struct {
 	Header
 	StructureSize uint16
 	Reserved      uint16
@@ -719,7 +712,7 @@ type TreeConnectReq struct {
 	Path          []byte
 }
 
-type TreeConnectRes struct {
+type treeConnectRes struct {
 	Header
 	StructureSize uint16
 	ShareType     byte
@@ -729,13 +722,13 @@ type TreeConnectRes struct {
 	MaximalAccess uint32
 }
 
-type TreeDisconnectReq struct {
+type treeDisconnectReq struct {
 	Header
 	StructureSize uint16
 	Reserved      uint16
 }
 
-type TreeDisconnectRes struct {
+type treeDisconnectRes struct {
 	Header
 	StructureSize uint16
 	Reserved      uint16
@@ -759,7 +752,7 @@ func newHeader() Header {
 	}
 }
 
-func (s *Session) NewNegotiateReq() NegotiateReq {
+func (s *Session) NewNegotiateReq() negotiateReq {
 	header := newHeader()
 	header.Command = CommandNegotiate
 	header.CreditCharge = 1
@@ -768,7 +761,7 @@ func (s *Session) NewNegotiateReq() NegotiateReq {
 	dialects := []uint16{
 		uint16(DialectSmb_2_1),
 	}
-	return NegotiateReq{
+	return negotiateReq{
 		Header:          header,
 		StructureSize:   36,
 		DialectCount:    uint16(len(dialects)),
@@ -781,8 +774,8 @@ func (s *Session) NewNegotiateReq() NegotiateReq {
 	}
 }
 
-func NewNegotiateRes() NegotiateRes {
-	return NegotiateRes{
+func newNegotiateRes() *negotiateRes {
+	return &negotiateRes{
 		Header:               newHeader(),
 		StructureSize:        0,
 		SecurityMode:         0,
@@ -802,7 +795,7 @@ func NewNegotiateRes() NegotiateRes {
 	}
 }
 
-func (s *Session) NewSessionSetup1Req() (SessionSetup1Req, error) {
+func (s *Session) NewSessionSetup1Req() (*sessionSetup1Req, error) {
 	header := newHeader()
 	header.Command = CommandSessionSetup
 	header.CreditCharge = 1
@@ -812,21 +805,21 @@ func (s *Session) NewSessionSetup1Req() (SessionSetup1Req, error) {
 	ntlmsspneg := ntlmssp.NewNegotiate(s.options.Domain, s.options.Workstation)
 	data, err := encoder.Marshal(ntlmsspneg)
 	if err != nil {
-		return SessionSetup1Req{}, err
+		return &sessionSetup1Req{}, err
 	}
 
 	if s.sessionID != 0 {
-		return SessionSetup1Req{}, errors.New("Bad session ID for session setup 1 message")
+		return &sessionSetup1Req{}, errors.New("Bad session ID for session setup 1 message")
 	}
 
 	// Initial session setup request
 	init, err := gss.NewNegTokenInit()
 	if err != nil {
-		return SessionSetup1Req{}, err
+		return &sessionSetup1Req{}, err
 	}
 	init.Data.MechToken = data
 
-	return SessionSetup1Req{
+	return &sessionSetup1Req{
 		Header:               header,
 		StructureSize:        25,
 		Flags:                0x00,
@@ -840,19 +833,19 @@ func (s *Session) NewSessionSetup1Req() (SessionSetup1Req, error) {
 	}, nil
 }
 
-func NewSessionSetup1Res() (SessionSetup1Res, error) {
+func newSessionSetup1Res() (*sessionSetup1Res, error) {
 	resp, err := gss.NewNegTokenResp()
 	if err != nil {
-		return SessionSetup1Res{}, err
+		return &sessionSetup1Res{}, err
 	}
-	ret := SessionSetup1Res{
+	ret := &sessionSetup1Res{
 		Header:       newHeader(),
 		SecurityBlob: &resp,
 	}
 	return ret, nil
 }
 
-func (s *Session) NewSessionSetup2Req() (SessionSetup2Req, error) {
+func (s *Session) NewSessionSetup2Req() (req *sessionSetup2Req, err error) {
 	header := newHeader()
 	header.Command = CommandSessionSetup
 	header.CreditCharge = 1
@@ -862,21 +855,21 @@ func (s *Session) NewSessionSetup2Req() (SessionSetup2Req, error) {
 	ntlmsspneg := ntlmssp.NewNegotiate(s.options.Domain, s.options.Workstation)
 	data, err := encoder.Marshal(ntlmsspneg)
 	if err != nil {
-		return SessionSetup2Req{}, err
+		return nil, err
 	}
 
 	if s.sessionID == 0 {
-		return SessionSetup2Req{}, errors.New("Bad session ID for session setup 2 message")
+		return &sessionSetup2Req{}, errors.New("Bad session ID for session setup 2 message")
 	}
 
 	// Session setup request #2
 	resp, err := gss.NewNegTokenResp()
 	if err != nil {
-		return SessionSetup2Req{}, err
+		return &sessionSetup2Req{}, err
 	}
 	resp.ResponseToken = data
 
-	return SessionSetup2Req{
+	return &sessionSetup2Req{
 		Header:               header,
 		StructureSize:        25,
 		Flags:                0x00,
@@ -890,12 +883,12 @@ func (s *Session) NewSessionSetup2Req() (SessionSetup2Req, error) {
 	}, nil
 }
 
-func NewSessionSetup2Res() (SessionSetup2Res, error) {
+func newSessionSetup2Res() (*sessionSetup2Res, error) {
 	resp, err := gss.NewNegTokenResp()
 	if err != nil {
-		return SessionSetup2Res{}, err
+		return nil, err
 	}
-	ret := SessionSetup2Res{
+	ret := &sessionSetup2Res{
 		Header:       newHeader(),
 		SecurityBlob: &resp,
 	}
@@ -904,7 +897,7 @@ func NewSessionSetup2Res() (SessionSetup2Res, error) {
 
 // NewTreeConnectReq creates a new TreeConnect message and accepts the share name
 // as input.
-func (s *Session) NewTreeConnectReq(name string) (TreeConnectReq, error) {
+func (s *Session) NewTreeConnectReq(name string) (treeConnectReq, error) {
 	header := newHeader()
 	header.Command = CommandTreeConnect
 	header.CreditCharge = 1
@@ -912,7 +905,7 @@ func (s *Session) NewTreeConnectReq(name string) (TreeConnectReq, error) {
 	header.SessionID = s.sessionID
 
 	path := fmt.Sprintf("\\\\%s\\%s", s.options.Host, name)
-	return TreeConnectReq{
+	return treeConnectReq{
 		Header:        header,
 		StructureSize: 9,
 		Reserved:      0,
@@ -923,18 +916,18 @@ func (s *Session) NewTreeConnectReq(name string) (TreeConnectReq, error) {
 }
 
 // open a new file or directory using create
-func (s *Session) NewCreateReq(tree string, name string) (CreateReq, error) {
+func (s *Session) NewCreateReq(tree string, name string) (createReq, error) {
 	header := newHeader()
 	header.Command = CommandCreate
 	header.CreditCharge = 1
 	header.MessageID = s.messageID
 	header.SessionID = s.sessionID
 	header.TreeID = 0
-	if treeId, ok := s.trees[tree]; ok {
-		header.TreeID = treeId
+	if treeID, ok := s.trees[tree]; ok {
+		header.TreeID = treeID
 	}
 
-	return CreateReq{
+	return createReq{
 		Header:               header,
 		StructureSize:        57,
 		SecurityFlags:        0,
@@ -955,55 +948,60 @@ func (s *Session) NewCreateReq(tree string, name string) (CreateReq, error) {
 	}, nil
 }
 
-func (s *Session) NewReadReq(tree string) (ReadReq, error) {
+func (s *Session) newReadReq(tree string, fileHandle *FileID) (req *readReq) {
 	header := newHeader()
 	header.Command = CommandRead
 	header.CreditCharge = 1
 	header.MessageID = s.messageID
 	header.SessionID = s.sessionID
 	header.TreeID = 0
-	if treeId, ok := s.trees[tree]; ok {
-		header.TreeID = treeId
+	if treeID, ok := s.trees[tree]; ok {
+		header.TreeID = treeID
 	}
 
-	return ReadReq{
+	req = &readReq{
 		Header:                header,
 		StructureSize:         49,
 		Padding:               80,
 		Flags:                 0,
 		Length:                305, //get from create'res's end_of_file
 		Offset:                0,
-		FileID:                s.FileId,
+		FileID:                fileHandle,
 		MinimumCount:          1,
 		Channel:               Smb2ChannelNone,
 		RemainingBytes:        0,
 		ReadChannelInfoLength: 0,
 		ReadChannelInfoOffset: 0,
 		ChannelInfo:           []byte{0x00},
-	}, nil
+	}
+	return
 }
 
-func (s *Session) NewCloseReq(tree string) (CloseReq, error) {
+func (s *Session) NewCloseReq(tree string, fileHandle *FileID) (req *closeReq, err error) {
 	header := newHeader()
 	header.Command = CommandClose
 	header.CreditCharge = 1
 	header.MessageID = s.messageID
 	header.SessionID = s.sessionID
 	header.TreeID = 0
-	if treeId, ok := s.trees[tree]; ok {
-		header.TreeID = treeId
+	treeID, ok := s.trees[tree]
+	if !ok {
+		err = fmt.Errorf("invalid tree provided")
+		return
 	}
+	header.TreeID = treeID
 
-	return CloseReq{
+	req = &closeReq{
 		Header:        header,
 		StructureSize: 24,
 		Flags:         1,
 		Reserved:      0,
-		FileID:        s.FileId,
-	}, nil
+		FileID:        fileHandle,
+	}
+	return
 }
 
-func (s *Session) NewTreeDisconnectReq(treeId uint32) (TreeDisconnectReq, error) {
+func (s *Session) NewTreeDisconnectReq(treeId uint32) (treeDisconnectReq, error) {
 	header := newHeader()
 	header.Command = CommandTreeDisconnect
 	header.CreditCharge = 1
@@ -1011,21 +1009,21 @@ func (s *Session) NewTreeDisconnectReq(treeId uint32) (TreeDisconnectReq, error)
 	header.SessionID = s.sessionID
 	header.TreeID = treeId
 
-	return TreeDisconnectReq{
+	return treeDisconnectReq{
 		Header:        header,
 		StructureSize: 4,
 		Reserved:      0,
 	}, nil
 }
 
-func (s *Session) NewLogoffReq() (LogoffReq, error) {
+func (s *Session) NewLogoffReq() (logoffReq, error) {
 	header := newHeader()
 	header.Command = CommandLogoff
 	header.CreditCharge = 1
 	header.MessageID = s.messageID
 	header.SessionID = s.sessionID
 
-	return LogoffReq{
+	return logoffReq{
 		Header:        header,
 		StructureSize: 4,
 		Reserved:      0,

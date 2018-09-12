@@ -5,19 +5,17 @@ import (
 	"bytes"
 	"encoding/asn1"
 	"encoding/binary"
-	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
-	"runtime/debug"
 
 	"github.com/hy05190134/smb/gss"
 	"github.com/hy05190134/smb/ntlmssp"
 	"github.com/hy05190134/smb/smb/encoder"
+	"github.com/pkg/errors"
 )
 
+// Session wraps the current connection session settings
 type Session struct {
 	IsSigningRequired bool
 	IsAuthenticated   bool
@@ -27,11 +25,11 @@ type Session struct {
 	sessionID         uint64
 	conn              net.Conn
 	dialect           uint16
-	options           Options
+	options           *Options
 	trees             map[string]uint32
-	FileId            FileID
 }
 
+// Options store current options
 type Options struct {
 	Host        string
 	Port        int
@@ -40,22 +38,27 @@ type Options struct {
 	User        string
 	Password    string
 	Hash        string
+	Debug       bool
 }
 
-func validateOptions(opt Options) error {
+func validateOptions(opt *Options) (err error) {
 	if opt.Host == "" {
-		return errors.New("Missing required option: Host")
+		err = fmt.Errorf("missing required option: Host")
+		return
 	}
 	if opt.Port < 1 || opt.Port > 65535 {
-		return errors.New("Invalid or missing value: Port")
+		err = fmt.Errorf("invalid or missing value: Port")
+		return
 	}
-	return nil
+	return
 }
 
-func NewSession(opt Options, debug bool) (s *Session, err error) {
-
-	if err := validateOptions(opt); err != nil {
-		return nil, err
+// New creates a new connection
+func New(opt *Options) (s *Session, err error) {
+	err = validateOptions(opt)
+	if err != nil {
+		err = errors.Wrap(err, "options are invalid")
+		return
 	}
 
 	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", opt.Host, opt.Port))
@@ -66,7 +69,7 @@ func NewSession(opt Options, debug bool) (s *Session, err error) {
 	s = &Session{
 		IsSigningRequired: false,
 		IsAuthenticated:   false,
-		debug:             debug,
+		debug:             opt.Debug,
 		securityMode:      0,
 		messageID:         0,
 		sessionID:         0,
@@ -74,65 +77,54 @@ func NewSession(opt Options, debug bool) (s *Session, err error) {
 		conn:              conn,
 		options:           opt,
 		trees:             make(map[string]uint32),
-		FileId:            FileID{},
 	}
 
-	s.Debug("Negotiating protocol", nil)
-	err = s.NegotiateProtocol()
+	err = s.negotiateProtocol()
 	if err != nil {
+		err = errors.Wrap(err, "failed to negotiate protocol")
 		return
 	}
 
 	return s, nil
 }
 
-func (s *Session) Debug(msg string, err error) {
-	if s.debug {
-		log.Println("[ DEBUG ] ", msg)
-		if err != nil {
-			debug.PrintStack()
-		}
-	}
-}
-
-func (s *Session) NegotiateProtocol() error {
+// NegotiateProtocol attempts to negotiate the protocol
+func (s *Session) negotiateProtocol() (err error) {
 	negReq := s.NewNegotiateReq()
-	s.Debug("Sending NegotiateProtocol request", nil)
 	buf, err := s.send(negReq)
 	if err != nil {
-		s.Debug("", err)
-		return err
+		err = errors.Wrap(err, "failed to send negotiate request")
+		return
 	}
 
-	negRes := NewNegotiateRes()
-	s.Debug("Unmarshalling NegotiateProtocol response", nil)
-	if err := encoder.Unmarshal(buf, &negRes); err != nil {
-		s.Debug("Raw:\n"+hex.Dump(buf), err)
-		return err
+	negRes := newNegotiateRes()
+	if err := encoder.Unmarshal(buf, negRes); err != nil {
+		err = errors.Wrap(err, "failed to unmarshal negotiation response")
+		//	return err
 	}
 
 	if negRes.Header.Status != StatusOk {
-		return errors.New(fmt.Sprintf("NT Status Error: %d\n", negRes.Header.Status))
+		err = errors.Wrapf(err, "unexpected status header: %d", negRes.Header.Status)
+		return
 	}
 
 	// Check SPNEGO security blob
 	spnegoOID, err := gss.ObjectIDStrToInt(gss.SpnegoOid)
 	if err != nil {
-		return err
+		err = errors.Wrap(err, "security blob failure")
+		return
 	}
 	oid := negRes.SecurityBlob.OID
 	if !oid.Equal(asn1.ObjectIdentifier(spnegoOID)) {
-		return errors.New(fmt.Sprintf(
-			"Unknown security type OID [expecting %s]: %s\n",
-			gss.SpnegoOid,
-			negRes.SecurityBlob.OID))
+		err = fmt.Errorf("unknown security type OID [expecting %s]: %s", gss.SpnegoOid, negRes.SecurityBlob.OID)
+		return
 	}
 
 	// Check for NTLMSSP support
 	ntlmsspOID, err := gss.ObjectIDStrToInt(gss.NtLmSSPMechTypeOid)
 	if err != nil {
-		s.Debug("", err)
-		return err
+		err = errors.Wrap(err, "failed to check for NTLMSSP support")
+		return
 	}
 
 	hasNTLMSSP := false
@@ -143,7 +135,8 @@ func (s *Session) NegotiateProtocol() error {
 		}
 	}
 	if !hasNTLMSSP {
-		return errors.New("Server does not support NTLMSSP")
+		err = fmt.Errorf("server does not support NTLMSSP")
+		return
 	}
 
 	s.securityMode = negRes.SecurityMode
@@ -161,70 +154,72 @@ func (s *Session) NegotiateProtocol() error {
 		s.IsSigningRequired = false
 	}
 
-	s.Debug("Sending SessionSetup1 request", nil)
 	ssreq, err := s.NewSessionSetup1Req()
 	if err != nil {
-		s.Debug("", err)
-		return err
+		err = errors.Wrap(err, "failed to establish new session setup1 request")
+		return
 	}
-	ssres, err := NewSessionSetup1Res()
+	ssres, err := newSessionSetup1Res()
 	if err != nil {
-		s.Debug("", err)
-		return err
+		err = errors.Wrap(err, "failed to establish new session setup1 response")
+		return
 	}
 	buf, err = encoder.Marshal(ssreq)
 	if err != nil {
-		s.Debug("", err)
-		return err
+		err = errors.Wrap(err, "failed to marshal setup1 request")
+		return
 	}
 
 	buf, err = s.send(ssreq)
 	if err != nil {
-		s.Debug("Raw:\n"+hex.Dump(buf), err)
-		return err
+		err = errors.Wrap(err, "failed to send setup1 request")
+		return
 	}
 
-	s.Debug("Unmarshalling SessionSetup1 response", nil)
-	if err := encoder.Unmarshal(buf, &ssres); err != nil {
-		s.Debug("", err)
-		return err
+	err = encoder.Unmarshal(buf, &ssres)
+	if err != nil {
+		err = errors.Wrap(err, "failed to unmarshal setup1 response")
+		return
 	}
 
 	challenge := ntlmssp.NewChallenge()
 	resp := ssres.SecurityBlob
-	if err := encoder.Unmarshal(resp.ResponseToken, &challenge); err != nil {
-		s.Debug("", err)
-		return err
+	err = encoder.Unmarshal(resp.ResponseToken, &challenge)
+	if err != nil {
+		err = errors.Wrap(err, "failed to unmarshal security blob")
+		return
 	}
 
 	if ssres.Header.Status != StatusMoreProcessingRequired {
-		status, _ := StatusMap[negRes.Header.Status]
-		return errors.New(fmt.Sprintf("NT Status Error: %s\n", status))
+		status, ok := StatusMap[negRes.Header.Status]
+		if !ok {
+			err = errors.Wrapf(err, "unknown header type %d", negRes.Header.Status)
+			return
+		}
+		err = fmt.Errorf("unexpected status header: %s", status)
+		return
 	}
 	s.sessionID = ssres.Header.SessionID
 
-	s.Debug("Sending SessionSetup2 request", nil)
 	ss2req, err := s.NewSessionSetup2Req()
 	if err != nil {
-		s.Debug("", err)
-		return err
+		err = errors.Wrap(err, "failed to create setup2 request")
+		return
 	}
 
 	var auth ntlmssp.Authenticate
 	if s.options.Hash != "" {
 		// Hash present, use it for auth
-		s.Debug("Performing hash-based authentication", nil)
 		auth = ntlmssp.NewAuthenticateHash(s.options.Domain, s.options.User, s.options.Workstation, s.options.Hash, challenge)
 	} else {
 		// No hash, use password
-		s.Debug("Performing password-based authentication", nil)
 		auth = ntlmssp.NewAuthenticatePass(s.options.Domain, s.options.User, s.options.Workstation, s.options.Password, challenge)
 	}
 
 	responseToken, err := encoder.Marshal(auth)
 	if err != nil {
-		s.Debug("", err)
-		return err
+		err = errors.Wrap(err, "failed to marshal response token")
+		return
 	}
 	resp2 := ss2req.SecurityBlob
 	resp2.ResponseToken = responseToken
@@ -232,65 +227,75 @@ func (s *Session) NegotiateProtocol() error {
 	ss2req.Header.Credits = 127
 	buf, err = encoder.Marshal(ss2req)
 	if err != nil {
-		s.Debug("", err)
-		return err
+		err = errors.Wrap(err, "failed to marshal setup2 request")
+		return
 	}
 
 	buf, err = s.send(ss2req)
 	if err != nil {
-		s.Debug("", err)
-		return err
+		err = errors.Wrap(err, "failed to send setup2 request")
+		return
 	}
-	s.Debug("Unmarshalling SessionSetup2 response", nil)
+
 	var authResp Header
-	if err := encoder.Unmarshal(buf, &authResp); err != nil {
-		s.Debug("Raw:\n"+hex.Dump(buf), err)
-		return err
+	err = encoder.Unmarshal(buf, &authResp)
+	if err != nil {
+		err = errors.Wrap(err, "failed to unmarshal auth response")
+		return
 	}
+
 	if authResp.Status != StatusOk {
-		status, _ := StatusMap[authResp.Status]
-		return errors.New(fmt.Sprintf("NT Status Error: %s\n", status))
+		status, ok := StatusMap[authResp.Status]
+		if !ok {
+			err = errors.Wrapf(err, "unrecognized auth response status type: %d", authResp.Status)
+			return
+		}
+		err = fmt.Errorf("auth response failed with status %s", status)
+		return
 	}
 	s.IsAuthenticated = true
-
-	s.Debug("Completed NegotiateProtocol and SessionSetup", nil)
-	return nil
+	return
 }
 
-func (s *Session) TreeConnect(name string) error {
-	s.Debug("Sending TreeConnect request ["+name+"]", nil)
+// TreeConnect establishes a connection with a tree share
+func (s *Session) TreeConnect(name string) (err error) {
+
 	req, err := s.NewTreeConnectReq(name)
 	if err != nil {
-		s.Debug("", err)
-		return err
+		err = errors.Wrap(err, "failed to create new tree connect request")
+		return
 	}
 	buf, err := s.send(req)
 	if err != nil {
-		s.Debug("", err)
-		return err
+		err = errors.Wrap(err, "failed to send new tree connect request")
+		return
 	}
-	var res TreeConnectRes
-	s.Debug("Unmarshalling TreeConnect response ["+name+"]", nil)
-	if err := encoder.Unmarshal(buf, &res); err != nil {
-		s.Debug("Raw:\n"+hex.Dump(buf), err)
-		return err
+	var res treeConnectRes
+	err = encoder.Unmarshal(buf, &res)
+	if err != nil {
+		err = errors.Wrap(err, "failed to unmarshal tree connect response")
+		return
 	}
 
 	if res.Header.Status != StatusOk {
-		return errors.New("Failed to connect to tree: " + StatusMap[res.Header.Status])
+		status, ok := StatusMap[res.Header.Status]
+		if !ok {
+			err = fmt.Errorf("failed to connect to tree (unknown status): %d", res.Header.Status)
+			return
+		}
+		err = fmt.Errorf("failed to connect to tree: %s", status)
+		return
 	}
 	s.trees[name] = res.Header.TreeID
-
-	s.Debug("Completed TreeConnect ["+name+"]", nil)
 	return nil
 }
 
-func (s *Session) TreeDisconnect(name string) error {
+// TreeDisconnect stops a connection
+func (s *Session) TreeDisconnect(name string) (err error) {
 
-	var (
-		treeid    uint32
-		pathFound bool
-	)
+	var treeid uint32
+	var pathFound bool
+
 	for k, v := range s.trees {
 		if k == name {
 			treeid = v
@@ -300,207 +305,225 @@ func (s *Session) TreeDisconnect(name string) error {
 	}
 
 	if !pathFound {
-		err := errors.New("Unable to find tree path for disconnect")
-		s.Debug("", err)
-		return err
+		err = fmt.Errorf("Unable to find tree path for disconnect")
+		return
 	}
 
-	s.Debug("Sending TreeDisconnect request ["+name+"]", nil)
 	req, err := s.NewTreeDisconnectReq(treeid)
 	if err != nil {
-		s.Debug("", err)
-		return err
+		err = errors.Wrap(err, "failed to create new tree disconnect request")
+		return
 	}
 	buf, err := s.send(req)
 	if err != nil {
-		s.Debug("", err)
-		return err
+		err = errors.Wrap(err, "failed to send tree disconnect")
+		return
 	}
-	s.Debug("Unmarshalling TreeDisconnect response for ["+name+"]", nil)
-	var res TreeDisconnectRes
-	if err := encoder.Unmarshal(buf, &res); err != nil {
-		s.Debug("Raw:\n"+hex.Dump(buf), err)
-		return err
+
+	var res treeDisconnectRes
+	err = encoder.Unmarshal(buf, &res)
+	if err != nil {
+		err = errors.Wrap(err, "failed to unmarshal tree disconnect response")
+		return
 	}
 	if res.Header.Status != StatusOk {
-		return errors.New("Failed to disconnect from tree: " + StatusMap[res.Header.Status])
+		status, ok := StatusMap[res.Header.Status]
+		if !ok {
+			err = fmt.Errorf("failed to disconnect from tree: (unknown status): %s", res.Header.Status)
+			return
+		}
+		err = fmt.Errorf("failed to disconnect from tree: %s", status)
+		return
 	}
 	delete(s.trees, name)
 
-	s.Debug("TreeDisconnect completed ["+name+"]", nil)
 	return nil
 }
 
-func (s *Session) OpenFile(tree, name string) error {
-	s.Debug("Sending Create request ["+tree+"\\"+name+"]", nil)
+// OpenFile opens a file to begin a transfer
+func (s *Session) OpenFile(tree, name string) (fileHandle *FileID, err error) {
 	req, err := s.NewCreateReq(tree, name)
 	if err != nil {
-		s.Debug("", err)
-		return err
+		err = errors.Wrap(err, "failed to create new create request")
+		return
 	}
 	buf, err := s.send(req)
 	if err != nil {
-		s.Debug("", err)
-		return err
+		err = errors.Wrap(err, "failed to send new create request")
+		return
 	}
-	var res CreateRes
-	s.Debug("Unmarshalling Create response ["+name+"]", nil)
-	if err := encoder.Unmarshal(buf, &res); err != nil {
-		s.Debug("Raw:\n"+hex.Dump(buf), err)
-		return err
+	var res createRes
+
+	err = encoder.Unmarshal(buf, &res)
+	if err != nil {
+		err = errors.Wrap(err, "failed to unmarshal new create request")
+		return
 	}
 
 	if res.Header.Status != StatusOk {
-		return errors.New("Failed to create file: " + StatusMap[res.Header.Status])
+		status, ok := StatusMap[res.Header.Status]
+		if !ok {
+			err = fmt.Errorf("failed to do new create (unknown status): %d", res.Header.Status)
+			return
+		}
+		err = fmt.Errorf("failed to do new create: %s", status)
+		return
 	}
 
-	//get file_id
-	s.FileId = res.FileID
-
-	s.Debug("Completed Create ["+name+"]", nil)
-	return nil
+	fileHandle = &res.FileID
+	return
 }
 
-func (s *Session) ReadFile(tree string) error {
-	s.Debug("Sending ReadFile request", nil)
-	req, err := s.NewReadReq(tree)
+// ReadFile reads a new file
+func (s *Session) ReadFile(tree string, fileHandle *FileID) (data []byte, err error) {
+	req := s.newReadReq(tree, fileHandle)
 	if err != nil {
-		s.Debug("", err)
-		return err
+		err = errors.Wrap(err, "failed to create new read request")
+		return
 	}
 	buf, err := s.send(req)
 	if err != nil {
-		s.Debug("", err)
-		return err
+		err = errors.Wrap(err, "Failed to send read request")
+		return
 	}
-	var res ReadRes
-	s.Debug("Unmarshalling ReadFile response", nil)
-	if err := encoder.Unmarshal(buf, &res); err != nil {
-		s.Debug("Raw:\n"+hex.Dump(buf), err)
-		return err
+	var res readRes
+	err = encoder.Unmarshal(buf, res)
+	if err != nil {
+		err = errors.Wrap(err, "failed to unmarshal read response")
+		return nil, err
 	}
 
 	if res.Header.Status != StatusOk {
-		return errors.New("Failed to read file: " + StatusMap[res.Header.Status])
+		err = fmt.Errorf("Failed to read file: %s", StatusMap[res.Header.Status])
+		return
 	}
-
-	fmt.Printf("Read Content: %s\n", string(res.Data))
-
-	s.Debug("Completed ReadFile", nil)
-	return nil
+	data = res.Data
+	return
 }
 
-func (s *Session) CloseFile(tree string) error {
-	s.Debug("Sending CloseFile request", nil)
-	req, err := s.NewCloseReq(tree)
+// CloseFile closes a file request
+func (s *Session) CloseFile(tree string, fileHandle *FileID) (err error) {
+	req, err := s.NewCloseReq(tree, fileHandle)
 	if err != nil {
-		s.Debug("", err)
-		return err
+		err = errors.Wrap(err, "failed to create new close request")
+		return
 	}
 	buf, err := s.send(req)
 	if err != nil {
-		s.Debug("", err)
-		return err
+		err = errors.Wrap(err, "failed to send close request")
+		return
 	}
-	var res CloseRes
-	s.Debug("Unmarshalling CloseFile response", nil)
-	if err := encoder.Unmarshal(buf, &res); err != nil {
-		s.Debug("Raw:\n"+hex.Dump(buf), err)
-		return err
+
+	var res closeRes
+	err = encoder.Unmarshal(buf, &res)
+	if err != nil {
+		err = errors.Wrap(err, "failed to unmarshal close file response")
+		return
 	}
 
 	if res.Header.Status != StatusOk {
-		return errors.New("Failed to close file: " + StatusMap[res.Header.Status])
+		err = fmt.Errorf("Failed to close file: %s", StatusMap[res.Header.Status])
+		return
 	}
-
-	s.Debug("Completed CloseFile", nil)
-	return nil
+	return
 }
 
-func (s *Session) Logoff() error {
-	s.Debug("Sending Logoff request", nil)
+// LogOff exits the session
+func (s *Session) LogOff() (err error) {
 	req, err := s.NewLogoffReq()
 	if err != nil {
-		s.Debug("", err)
-		return err
+		err = errors.Wrap(err, "failed to create new logoff request")
+		return
 	}
 
 	buf, err := s.send(req)
 	if err != nil {
-		s.Debug("", err)
-		return err
+		err = errors.Wrap(err, "failed to send logoff request")
+		return
 	}
 
-	var res LogoffRes
-	s.Debug("Unmarshalling Logoff response", nil)
-	if err := encoder.Unmarshal(buf, &res); err != nil {
-		s.Debug("Raw:\n"+hex.Dump(buf), err)
+	var res logoffRes
+	err = encoder.Unmarshal(buf, &res)
+	if err != nil {
+		err = errors.Wrap(err, "failed to unmarshal logoff request")
+		return
 	}
 
 	if res.Header.Status != StatusOk {
-		return errors.New("Failed to logoff: " + StatusMap[res.Header.Status])
+		err = fmt.Errorf("failed to log off: %s", StatusMap[res.Header.Status])
+		return
 	}
-
-	s.Debug("Completed Logoff", nil)
-	return nil
+	return
 }
 
-func (s *Session) Close() {
-	s.Debug("Closing session", nil)
-	for k, _ := range s.trees {
-		s.TreeDisconnect(k)
+// Close closes the session
+func (s *Session) Close() (errs []error) {
+	var err error
+	for k := range s.trees {
+		err = s.TreeDisconnect(k)
+		if err != nil {
+			errs = append(errs, errors.Wrapf(err, "failed to disconnect tree %s", k))
+		}
 	}
-	s.Debug("Closing TCP connection", nil)
-	s.conn.Close()
-	s.Debug("Session close completed", nil)
+
+	err = s.conn.Close()
+	if err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to disconnect connection"))
+	}
+	return
 }
 
 func (s *Session) send(req interface{}) (res []byte, err error) {
 	buf, err := encoder.Marshal(req)
 	if err != nil {
-		s.Debug("", err)
-		return nil, err
+		err = errors.Wrap(err, "failed during marshal")
+		return
 	}
 
 	b := new(bytes.Buffer)
-	if err = binary.Write(b, binary.BigEndian, uint32(len(buf))); err != nil {
-		s.Debug("", err)
+	err = binary.Write(b, binary.BigEndian, uint32(len(buf)))
+	if err != nil {
+		err = errors.Wrap(err, "failed during write")
 		return
 	}
 
 	rw := bufio.NewReadWriter(bufio.NewReader(s.conn), bufio.NewWriter(s.conn))
-	if _, err = rw.Write(append(b.Bytes(), buf...)); err != nil {
-		s.Debug("", err)
+	_, err = rw.Write(append(b.Bytes(), buf...))
+	if err != nil {
+		err = errors.Wrap(err, "failed during readwriter")
 		return
 	}
 	rw.Flush()
 
 	var size uint32
 	if err = binary.Read(rw, binary.BigEndian, &size); err != nil {
-		s.Debug("", err)
+		err = errors.Wrap(err, "failed during binary read")
 		return
 	}
 	if size > 0x00FFFFFF {
-		return nil, errors.New("Invalid NetBIOS Session message")
+		err = fmt.Errorf("invalid netbios session message")
+		return
 	}
 
 	data := make([]byte, size)
 	l, err := io.ReadFull(rw, data)
 	if err != nil {
-		s.Debug("", err)
-		return nil, err
+		err = errors.Wrap(err, "failed to read payload")
+		return
 	}
 	if uint32(l) != size {
-		return nil, errors.New("Message size invalid")
+		err = fmt.Errorf("message size invalid")
+		return
 	}
 
 	protID := data[0:4]
 	switch string(protID) {
 	default:
-		return nil, errors.New("Protocol Not Implemented")
+		err = fmt.Errorf("protocol %s not implemented", string(protID))
+		return
 	case ProtocolSmb2:
 	}
 
 	s.messageID++
-	return data, nil
+	return
 }
